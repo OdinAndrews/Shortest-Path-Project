@@ -1,0 +1,940 @@
+#include <iostream>
+#include <string>
+#include <fstream>
+#include <vector>
+#include <queue>
+#include <cmath>
+#include <cstdlib>
+#include "library.h"
+
+using namespace std;
+
+#define PI 3.14159265358979323846
+
+struct Road{
+  string name;
+  string type;
+  int from;
+  int to;
+  double length;
+};
+
+struct Intersection{
+  double longitude;
+  double latitude;
+  double distance;
+  string state;
+  string name;
+};
+
+struct graphNode {
+  Intersection* data;
+  vector<Road*> roads;
+
+  graphNode(Intersection * n) {
+      vector<Road*> roadVec;
+      data = n;
+      roads = roadVec;
+  }
+
+  ~graphNode(){
+    delete data;
+  }
+};
+
+struct named_place {
+  int numCode;
+  string state;
+  string name;
+  int pop;
+  double area;
+  double latitude;
+  double longitude;
+  int intersection;
+  double dist_to_intersection;
+  named_place()
+  {
+    numCode = 0;
+    state = "";
+    name = "";
+    pop = 0;
+    area = 0.0;
+    latitude = 0.0;
+    longitude = 0.0;
+    intersection = 0;
+    dist_to_intersection = 0.0;
+  }
+
+} ;
+
+struct State{
+  string abbr;
+  string fullname;};
+
+struct Node {
+  named_place* data;
+  Node* next;
+
+  Node(named_place* n){  data = n;
+  next = nullptr;
+  }
+};
+
+class HashTablePlaces {
+private:
+    Node** table;
+    unsigned int tableSize;
+    unsigned int numElements;
+
+    unsigned int hash(const string &key) const {
+        long long h = 47281232;
+        for (size_t i = 0; i < key.length(); i++) {
+			char c = key[i];
+			h = (h + c) * 14983;
+		}
+        long long idx = h % tableSize;
+        if (idx < 0) idx += tableSize;
+        return static_cast<unsigned int>(idx);
+    }
+
+    void rehash() {
+        unsigned int newSize = tableSize * 2 + 1;
+        Node** newTable = new Node*[newSize];
+        for (unsigned int i = 0; i < newSize; ++i)
+            newTable[i] = nullptr;
+
+        for (unsigned int i = 0; i < tableSize; ++i) {
+            Node* ptr = table[i];
+            while (ptr) {
+                Node* nextNode = ptr->next;
+                unsigned int newIndex = hashRehash(ptr->data->name, newSize);
+                ptr->next = newTable[newIndex];
+                newTable[newIndex] = ptr;
+                ptr = nextNode;
+            }
+        }
+
+        delete[] table;
+        table = newTable;
+        tableSize = newSize;
+    }
+
+    unsigned int hashRehash(const string &key, unsigned int newSize) const {
+        long long h = 47281232;
+        for (size_t i = 0; i < key.length(); i++) {
+			char c = key[i];
+			h = (h + c) * 14983;
+		}
+        long long idx = h % newSize;
+        if (idx < 0) idx += newSize;
+        return static_cast<unsigned int>(idx);
+    }
+
+public:
+    HashTablePlaces(unsigned int size) {
+        tableSize = size;
+        numElements = 0;
+        table = new Node*[tableSize];
+        for (unsigned int i = 0; i < tableSize; ++i)
+            table[i] = nullptr;
+    }
+
+    ~HashTablePlaces() {
+        for (unsigned int i = 0; i < tableSize; ++i) {
+            Node* ptr = table[i];
+            while (ptr) {
+                Node* temp = ptr;
+                ptr = ptr->next;
+                delete temp;
+            }
+        }
+        delete[] table;
+    }
+
+    void insert(named_place* r) {
+        unsigned int index = hash(r->name);
+        Node* newNode = new Node(r);
+        newNode->next = table[index];
+        table[index] = newNode;
+
+        numElements++;
+
+        double loadFactor = (double)numElements / tableSize;
+        if (loadFactor > 0.9) {
+            rehash();
+        }
+    }
+
+    Node* find(const string& key) {
+        unsigned int index = hash(key);
+        Node* ptr = table[index];
+        while (ptr) {
+            if (ptr->data->name == key)
+                return ptr;
+            ptr = ptr->next;
+        }
+        return nullptr;
+    }
+
+    void printStates(const string& key) {
+      unsigned int index = hash(key);
+        Node* ptr = table[index];
+        while (ptr) {
+            cout<<ptr->data->state<<endl;
+            ptr = ptr->next;
+        }
+    }
+
+    void display() const {
+        for (unsigned int i = 0; i < tableSize; ++i) {
+            cout << "[" << i << "]: ";
+            Node* ptr = table[i];
+            while (ptr) {
+                cout << ptr->data->name << "(" << ptr->data->state
+                          << endl;
+                ptr = ptr->next;
+            }
+            cout << "nullptr\n";
+        }
+    }
+};
+
+
+string findStateFullName(State states[], int size, const string &abbr) {
+    int left = 0;
+    int right = size - 1;
+
+    while (left <= right) {
+        int mid = left + (right - left) / 2;
+
+        if (states[mid].abbr == abbr) {
+            return states[mid].fullname;
+        } else if (states[mid].abbr < abbr) {
+            left = mid + 1;
+        } else {
+            right = mid - 1;
+        }
+    }
+
+    return "Unknown";
+}
+
+string trim(const string &s) {
+    size_t start = s.find_first_not_of(' ');
+    size_t end   = s.find_last_not_of(' ');
+    if (start == string::npos) return "";
+    return s.substr(start, end - start + 1);
+}
+
+named_place* read_line_place(ifstream &file) {
+  string line;
+  named_place* place = new named_place();
+
+  if (getline(file, line)) {
+      place->numCode = stoi(line.substr(0,8));
+      place->state = line.substr(8, 2);
+      place->name = trim(line.substr(10, 42));
+      place->pop = stoi(line.substr(52, 14));
+      place->area = stod(line.substr(66, 14));
+      place->latitude = stod(line.substr(80, 10));
+      place->longitude = stod(line.substr(90, 11));
+      place->intersection = stoi(line.substr(101, 5));
+      place->dist_to_intersection = stod(line.substr(106, 8));
+  }
+
+  return place;
+  }
+
+
+Intersection* read_line_intersections(ifstream &file) {
+  string line;
+  Intersection* intersection = new Intersection;
+
+  if (getline(file, line)) {
+      intersection->longitude = stod(line.substr(0, 11));
+      intersection->latitude = stod(line.substr(11, 9));
+      intersection->distance = stod(line.substr(20, 8));
+      intersection->state = line.substr(27, 3);
+      intersection->name = line.substr(31, 30);
+  }
+
+  return intersection;
+}
+
+string nextVal(string val, int& pos){
+  int index = 0;
+  char next = 'a';
+  string temp = "";
+  while(next!=' ' && (index+pos) < val.length()){
+    next = val[index+pos];
+    if(next != ' ')
+      temp+=next;
+    index++;
+  }
+  pos+=index;
+  return temp;
+}
+
+string find_alt_file(named_place* p1, named_place* p2, int& smallest, ifstream &file){
+  string line;
+  int longLow, longHigh, latLow, latHigh;
+  string altFile;
+  int index = 0;
+  if(getline(file, line)){
+    latHigh = stoi(nextVal(line, index));
+    latLow = stoi(nextVal(line, index));
+    longLow = stoi(nextVal(line, index));
+    longHigh = stoi(nextVal(line, index));
+    altFile = nextVal(line, index);
+
+    int longRange, latRange;
+    longRange = abs(longHigh) - abs(longLow);
+    longRange = abs(longRange);
+    latRange = abs(latHigh) - abs(latLow);
+    latRange = abs(latRange);
+    int area = longRange * latRange;
+
+    if((longLow<p1->longitude)&&(p1->longitude<longHigh) && (longLow<p2->longitude)&&(p2->longitude<longHigh)&&(latLow<p1->latitude)&&(p1->latitude<latHigh) && (latLow<p2->latitude)&&(p2->latitude<latHigh)
+ && area<smallest){
+      smallest = area;
+      return altFile;}
+    else
+      return "";
+  }
+  else
+    return "";
+}
+
+Road read_line_connections(const string& line) {
+    Road r;
+    size_t pos = 0;
+    size_t nextPos;
+
+    nextPos = line.find(' ', pos);
+    r.name = line.substr(pos, nextPos - pos);
+    pos = nextPos + 1;
+
+    nextPos = line.find(' ', pos);
+    r.type = line.substr(pos, nextPos - pos);
+    pos = nextPos + 1;
+
+    nextPos = line.find(' ', pos);
+    r.from = stoi(line.substr(pos, nextPos - pos));
+    pos = nextPos + 1;
+
+    nextPos = line.find(' ', pos);
+    r.to = stoi(line.substr(pos, nextPos - pos));
+    pos = nextPos + 1;
+
+    r.length = stod(line.substr(pos));
+
+    return r;
+}
+
+struct DijkstraNode {
+    int id;
+    double dist;
+
+    bool operator>(const DijkstraNode& other) const {
+        return dist > other.dist;
+    }
+
+	DijkstraNode(int i, double d){
+		id = i;
+		dist = d;
+	}
+};
+
+string getCompassDirection(double lat1, double lon1, double lat2, double lon2) {
+    double dLon = (lon2 - lon1);
+    double y = sin(dLon * PI / 180.0) * cos(lat2 * PI / 180.0);
+    double x = cos(lat1 * PI / 180.0) * sin(lat2 * PI / 180.0) - sin(lat1 * PI / 180.0) * cos(lat2 * PI / 180.0) * cos(dLon * PI / 180.0);
+    double brng = atan2(y, x) * 180.0 / PI;
+    if (brng < 0) brng += 360;
+
+    if (brng >= 337.5 || brng < 22.5) return "North";
+    if (brng >= 22.5 && brng < 67.5) return "North-East";
+    if (brng >= 67.5 && brng < 112.5) return "East";
+    if (brng >= 112.5 && brng < 157.5) return "South-East";
+    if (brng >= 157.5 && brng < 202.5) return "South";
+    if (brng >= 202.5 && brng < 247.5) return "South-West";
+    if (brng >= 247.5 && brng < 292.5) return "West";
+    if (brng >= 292.5 && brng < 337.5) return "North-West";
+    return "Unknown";
+}
+
+void reverseRoads(vector<Road*>& path) {
+    int left = 0;
+    int right = path.size() - 1;
+    while (left < right) {
+        Road* temp = path[left];
+        path[left] = path[right];
+        path[right] = temp;
+        left++;
+        right--;
+    }
+}
+
+vector<Road*> findShortestPath(int startNode, int endNode, const vector<graphNode*>& graph) {
+    int n = graph.size();
+    vector<double> dist(n, -1.0);
+    vector<int> parent(n, -1);
+    vector<Road*> parentRoad(n, nullptr);
+    priority_queue<DijkstraNode, vector<DijkstraNode>, greater<DijkstraNode>> pq;
+
+    int startIdx = startNode - 1;
+    int endIdx = endNode - 1;
+
+    if (startIdx < 0 || startIdx >= n || endIdx < 0 || endIdx >= n) return vector<Road*>();
+
+    dist[startIdx] = 0;
+    pq.push(DijkstraNode(startIdx, 0));
+
+    while (!pq.empty()) {
+        int u = pq.top().id;
+        double d = pq.top().dist;
+        pq.pop();
+
+        if (dist[u] != -1.0 && d > dist[u]) continue;
+
+		if(graph[u]->roads.size() == 0){
+			cout<<graph[u]->data->name<<endl;
+		}
+
+        for (size_t i = 0; i < graph[u]->roads.size(); i++) {
+            Road* road = graph[u]->roads[i];
+
+            int v;
+			if (road->from - 1 == u) {
+				v = road->to - 1;  
+			} else if (road->to - 1 == u) {
+				v = road->from - 1; 
+			} else {
+				continue;
+			}
+    
+			if (v < 0 || v >= n) continue;
+    
+			double weight = road->length;
+			double newDist = dist[u] + weight;
+            if (dist[v] == -1.0 || dist[u] + weight < dist[v]) {
+                dist[v] = dist[u] + weight;
+                parent[v] = u;
+                parentRoad[v] = road;
+
+                DijkstraNode node(v, dist[v]);
+                pq.push(node);
+            }
+        }
+    }
+
+    if (dist[endIdx] == -1.0) return vector<Road*>();
+
+    vector<Road*> path;
+    int curr = endIdx;
+    while (curr != startIdx && parent[curr] != -1) {
+        path.push_back(parentRoad[curr]);
+        curr = parent[curr];
+    }
+    reverseRoads(path);
+    return path;
+}
+
+static const double deg60 = 1.0 / 6.0, deg120 = 1.0 / 3.0, deg180 = 0.5, deg240 = 2.0 / 3.0;
+
+double anti_hls(double n1, double n2, double h)
+{ 
+    int times = (int) h;
+    h -= times;
+    if (h < 0.0)
+        h += 1;
+    if (h < deg60)
+        return n1 + (n2 - n1) * h / deg60;
+    if (h < deg180)
+        return n2;
+    if (h < deg240)
+        return n1 + (n2 - n1) * (deg240 - h) / deg60;
+    return n1; 
+}
+
+void hls_to_rgb(double H, double L, double S, double &R, double &G, double &B)
+{ 
+    double m1 = L <= 0.5 ? L + L * S : L + S - L * S;
+    double m2 = 2 * L - m1;
+    R = anti_hls(m2, m1, H + deg120);
+    G = anti_hls(m2, m1, H);
+    B = anti_hls(m2, m1, H - deg120); 
+}
+
+void drawElevationMap(window* screen, const vector<vector<short>>& elev,
+                      int numRows, int numCols,
+                      short minElev, short maxElev, short specialVal)
+{
+    for (int r = 0; r < numRows; r++)
+    {
+        for (int c = 0; c < numCols; c++)
+        {
+            short val = elev[r][c];
+            int rgbcolor = 0;
+            if (val == specialVal) {
+                rgbcolor = color::light_blue;
+            }
+            else {
+                double normalized = (double)(val - minElev) / (maxElev - minElev);
+                
+                double H, L, S;
+                
+                if (normalized < 0.4) {
+                    H = 1.0 / 3.0; 
+                    L = 0.25 + normalized * 0.5; 
+                    S = 0.6; 
+                } else if (normalized < 0.7) {
+                    double t = (normalized - 0.4) / 0.3;
+                    H = (1.0 / 3.0) - t * (1.0 / 6.0); 
+                    L = 0.45 + t * 0.15; 
+                    S = 0.6 - t * 0.2; 
+                } else {
+                    double t = (normalized - 0.7) / 0.3;
+                    H = 1.0 / 12.0;
+                    L = 0.5 + t * 0.4; 
+                    S = 0.4 - t * 0.4; 
+                }
+                
+                double R, G, B;
+                hls_to_rgb(H, L, S, R, G, B);
+                
+                int red = (int)(R * 255);
+                int green = (int)(G * 255);
+                int blue = (int)(B * 255);
+                
+                rgbcolor = make_color_int(red, green, blue);
+			}
+
+            screen->set_pixel_color(c, r, rgbcolor);
+        }
+    }
+}
+
+void latLonToPixel(double lat, double lon,
+                   int &x, int &y,
+                   int leftLongSec, int topLatSec,
+                   int secondsPerPixel,
+                   int numCols, int numRows)
+{
+    int latSec = (int)(lat * 3600.0);
+    int lonSec = (int)(lon * 3600.0);
+    x = (lonSec - leftLongSec) / secondsPerPixel;
+    y = (topLatSec - latSec) / secondsPerPixel;
+
+    if (x < 0) x = 0;
+    if (x >= numCols) x = numCols - 1;
+    if (y < 0) y = 0;
+    if (y >= numRows) y = numRows - 1;
+}
+
+void markPoints(window* screen,
+                const named_place* startPlace,
+                const named_place* destPlace,
+                int leftLongSec, int topLatSec,
+                int secondsPerPixel,
+                int numCols, int numRows)
+{
+    int sx, sy, dx, dy;
+    latLonToPixel(startPlace->latitude, startPlace->longitude, sx, sy,
+                  leftLongSec, topLatSec, secondsPerPixel, numCols, numRows);
+    latLonToPixel(destPlace->latitude, destPlace->longitude, dx, dy,
+                  leftLongSec, topLatSec, secondsPerPixel, numCols, numRows);
+
+    screen->set_pen_color_int(0, 255, 0);
+    const int radius = 5;
+    for (int angle = 0; angle < 360; angle += 5) {
+        double rad = angle * 3.1415926535 / 180.0;
+        int px = sx + int(radius * cos(rad));
+        int py = sy + int(radius * sin(rad));
+        screen->draw_point(px, py);
+    }
+    screen->move_to(sx + radius + 2, sy + radius + 2);
+    screen->write_string(startPlace->name + ", " + startPlace->state);
+
+    screen->set_pen_color_int(255, 0, 0);
+    for (int angle = 0; angle < 360; angle += 5) {
+        double rad = angle * 3.1415926535 / 180.0;
+        int px = dx + int(radius * cos(rad));
+        int py = dy + int(radius * sin(rad));
+        screen->draw_point(px, py);
+    }
+    screen->move_to(dx + radius + 2, dy + radius + 2);
+    screen->write_string(destPlace->name + ", " + destPlace->state);
+}
+
+void drawPath(window* screen,
+              const vector<Road*>& path,
+              const vector<graphNode*>& graph,
+              int leftLongSec, int topLatSec,
+              int secondsPerPixel,
+              int numCols, int numRows)
+{
+    screen->set_pen_color_int(255, 0, 0);
+    screen->set_pen_width(2);
+
+    for (size_t i = 0; i < path.size(); i++)
+    {
+        Road* r = path[i];
+        graphNode* fromNode = graph[r->from];
+        graphNode* toNode = graph[r->to];
+
+        int x1, y1, x2, y2;
+        latLonToPixel(fromNode->data->latitude, fromNode->data->longitude, x1, y1,
+                      leftLongSec, topLatSec, secondsPerPixel, numCols, numRows);
+        latLonToPixel(toNode->data->latitude, toNode->data->longitude, x2, y2,
+                      leftLongSec, topLatSec, secondsPerPixel, numCols, numRows);
+
+        screen->move_to(x1, y1);
+        screen->draw_to(x2, y2);
+    }
+
+    screen->set_pen_width(1);
+}
+
+void printDirections(named_place* startPlace,
+                     named_place* destPlace,
+                     const vector<Road*>& path,
+                     const vector<graphNode*>& graph)
+{
+    cout << "\n=== DRIVING DIRECTIONS ===\n";
+    cout << "Start at " << startPlace->name << ", " << startPlace->state << endl;
+
+    if (path.empty()) {
+        cout << "No route found.\n";
+        return;
+    }
+
+    string currentRoad = path[0]->name;
+    double distance = 0.0;
+    int lastFrom = path[0]->from;
+
+    for (size_t i = 0; i < path.size(); i++)
+    {
+        Road* r = path[i];
+        if (r->name == currentRoad) {
+            distance += r->length;
+        }
+        else {
+            graphNode* fromNode = graph[lastFrom - 1];
+            graphNode* toNode = graph[r->from - 1];
+            string dir = getCompassDirection(fromNode->data->latitude, fromNode->data->longitude,
+                                             toNode->data->latitude, toNode->data->longitude);
+
+            cout << "Take " << currentRoad << " " << distance << " miles " << dir
+                 << " to intersection #" << toNode->data->name << ", " << toNode->data->state << endl;
+
+            currentRoad = r->name;
+            distance = r->length;
+            lastFrom = r->from;
+        }
+    }
+
+    graphNode* fromNode = graph[lastFrom - 1];
+    graphNode* toNode = graph[path.back()->to - 1];
+    string dir = getCompassDirection(fromNode->data->latitude, fromNode->data->longitude,
+                                     toNode->data->latitude, toNode->data->longitude);
+    cout << "Take " << currentRoad << " " << distance << " miles " << dir
+         << " to intersection #" << toNode->data->name << ", " << toNode->data->state << endl;
+
+    cout << "Then local road " << destPlace->dist_to_intersection << " miles to "
+         << destPlace->name << ", " << destPlace->state << endl;
+}
+
+bool loadElevationData(const string& filename, 
+                      vector<vector<short>>& elevationData,
+                      int& numRows, int& numCols,
+                      short& minElev, short& maxElev, short& specialVal,
+                      int& leftLongSec, int& topLatSec, int& secondsPerPixel, int& bytesPerPixel)
+{
+    ifstream file(filename, ios::in | ios::binary);
+    if (!file.is_open()) {
+        cerr << "Could not open elevation file: " << filename << endl;
+        return false;
+    }
+
+    string keyword;
+    int value;
+    for (int i = 0; i < 9; i++) {
+        file >> keyword >> value;
+        if (keyword == "rows") numRows = value;
+        else if (keyword == "columns") numCols = value;
+		else if (keyword == "bytesPerPixel") bytesPerPixel = value;
+        else if (keyword == "secondsperpixel") secondsPerPixel = value;
+        else if (keyword == "leftlongseconds") leftLongSec = value;
+        else if (keyword == "toplatseconds") topLatSec = value;
+        else if (keyword == "min") minElev = value;
+        else if (keyword == "max") maxElev = value;
+        else if (keyword == "specialval") specialVal = value;
+    }
+
+	file.seekg(sizeof(short)*numCols, ios::beg);
+
+    cout << "Loading elevation data: " << numRows << "x" << numCols << endl;
+    cout << "Elevation range: " << minElev << " to " << maxElev << endl;
+    cout << "Special value (water): " << specialVal << endl;
+    
+    elevationData.resize(numRows);
+    for (int r = 0; r < numRows; r++) {
+        elevationData[r].resize(numCols);
+        for (int c = 0; c < numCols; c++) {
+            short val;
+            file.read((char*)&val,sizeof(short));
+            elevationData[r][c] = val;
+        }
+    }
+
+    file.close();
+    
+    cout << "Successfully loaded elevation data!" << endl;
+    return true;
+}
+
+void main() {
+    const int MAX_INTERSECTIONS = 50000;
+
+    ifstream connectionsFile("connections.txt");
+    if (!connectionsFile.is_open()) {
+        cerr << "Error opening connections.txt! Please ensure it is in the current directory." << endl;
+        return;
+    }
+
+    vector<Road*> allRoads;
+    string line;
+    while (getline(connectionsFile, line)) {
+        if (line.empty()) continue;
+        Road r = read_line_connections(line);
+
+        if (r.from >= 0 && r.from <= MAX_INTERSECTIONS) {
+            allRoads.push_back(new Road(r));
+        } else {
+            cerr << "Warning: 'from' value out of range: " << r.from << endl;
+        }
+    }
+    connectionsFile.close();
+
+    ifstream intersectionsFile("intersections.txt");
+    if (!intersectionsFile.is_open()) {
+        cerr << "Error opening intersections.txt! Please ensure it is in the current directory." << endl;
+		return;
+    }
+
+    vector<graphNode*> graph;
+    while (true) {
+        Intersection* intersection = read_line_intersections(intersectionsFile);
+        if (intersectionsFile.fail()) break;
+        graphNode* node = new graphNode(intersection);
+        graph.push_back(node);
+    }
+    intersectionsFile.close();
+
+    for (size_t i = 0; i < allRoads.size(); i++) {
+		Road* road = allRoads[i];
+		int fromIdx = road->from - 1;
+		int toIdx = road->to - 1;
+    
+		if (fromIdx >= 0 && fromIdx < (int)graph.size()) {
+			graph[fromIdx]->roads.push_back(road);
+		} else {
+			cerr << "Invalid road source index: " << road->from << endl;
+		}
+    
+		if (toIdx >= 0 && toIdx < (int)graph.size()) {
+			graph[toIdx]->roads.push_back(road);
+		} else {
+			cerr << "Invalid road destination index: " << road->to << endl;
+		}
+	}
+
+    ifstream file3("named_places.txt");
+    if(!file3.is_open()) {
+        cerr << "Error opening named-places.txt! Please ensure it is in the current directory." << endl;
+		return;
+    }
+    State statesList[57];
+
+    ifstream statesFile("states.txt");
+    if (statesFile.is_open()) {
+        string line;
+        State temp;
+        for (int i = 0; i < 57; i++) {
+            getline(statesFile, line);
+            if (line.length() >= 3) {
+                temp.abbr = line.substr(0, 2);
+                temp.fullname = line.substr(3);
+                statesList[i] = temp;
+            }
+        }
+        statesFile.close();
+    }
+
+    HashTablePlaces ht(10001);
+    while (!file3.eof()) {
+        named_place* place = read_line_place(file3);
+        if (file3.fail()) break;
+        ht.insert(place);
+    }
+    file3.close();
+
+    named_place* startPlace = nullptr;
+    named_place* destPlace = nullptr;
+    vector<Road*> path;
+
+    while (true) {
+        string start_place, start_state;
+        cout << "\nEnter starting place (or 'quit' to exit):\n> ";
+        getline(cin, start_place);
+        start_place = trim(start_place);
+        if (start_place == "quit") break;
+
+        cout << "Possibilities:\n";
+        ht.printStates(start_place);
+        cout << "Select which state you are referring to\n> ";
+        getline(cin, start_state);
+        start_state = trim(start_state);
+
+        Node* start = ht.find(start_place);
+        while (start != nullptr) {
+            if (start->data->state == start_state)
+                break;
+            start = start->next;
+        }
+        if (!start) {
+            cout << "Start place with state not found.\n";
+            continue;
+        }
+        cout << "Place is " << start->data->name << ", " << start->data->state 
+             << ", pop " << start->data->pop << " (" << start->data->latitude 
+             << ", " << start->data->longitude << "), closest intersection " 
+             << start->data->intersection << endl;
+        startPlace = start->data;
+
+        string dest_place, dest_state;
+        cout << "Enter destination:\n> ";
+        getline(cin, dest_place);
+        dest_place = trim(dest_place);
+        if (dest_place == "quit") break;
+
+        cout << "Possibilities:\n";
+        ht.printStates(dest_place);
+        cout << "Select which state you are referring to\n> ";
+        getline(cin, dest_state);
+        dest_state = trim(dest_state);
+
+        Node* dest = ht.find(dest_place);
+        while (dest != nullptr) {
+            if (dest->data->state == dest_state)
+                break;
+            dest = dest->next;
+        }
+        if (!dest) {
+            cout << "Destination place with state not found.\n";
+            continue;
+        }
+        cout << "Place is " << dest->data->name << ", " << dest->data->state 
+             << ", pop " << dest->data->pop << " (" << dest->data->latitude 
+             << ", " << dest->data->longitude << "), closest intersection " 
+             << dest->data->intersection << endl;
+        destPlace = dest->data;
+
+        ifstream file4("coverage.txt");
+		if (!file4.is_open()) {
+            cerr << "Error opening coverage.txt! Please ensure it is in the current directory." << endl;
+            return;
+        }
+
+        int smallest = 100000;
+        string altFile;
+        while (!file4.eof()) {
+            string file = find_alt_file(startPlace, destPlace, smallest, file4);
+            if (file != "")
+                altFile = file;
+            if (file4.fail()) break;
+        }
+        file4.close();
+
+        if (altFile.empty()) {
+            cout << "Could not find coverage file for this route.\n";
+            continue;
+        }
+
+        cout << "Using elevation file: " << altFile << endl;
+
+        cout << "\nFinding path from " << startPlace->name << ", " << startPlace->state
+             << " to " << destPlace->name << ", " << destPlace->state << "...\n";
+
+        path = findShortestPath(startPlace->intersection, destPlace->intersection, graph);
+
+        if (path.empty()) {
+            cout << "No path found.\n";
+        } else {
+            double totalDist = startPlace->dist_to_intersection;
+            cout.precision(2);
+            cout.setf(ios::fixed, ios::floatfield);
+            cout << "Start at " << startPlace->dist_to_intersection << " miles from " 
+                 << startPlace->name << ", " << startPlace->state << endl;
+            
+            for (size_t i = 0; i < path.size(); i++) {
+				Road* r = path[i];
+
+				graphNode* fromNode = graph[r->from - 1];
+				graphNode* toNode   = graph[r->to - 1];
+
+				string dir = getCompassDirection(fromNode->data->latitude, fromNode->data->longitude,
+												 toNode->data->latitude, toNode->data->longitude);
+
+				cout << "then take " << r->name << " " << r->length << " miles " << dir
+					 << " to " << toNode->data->name << ", " << toNode->data->state << endl;
+
+				totalDist += r->length;
+			}
+            totalDist += destPlace->dist_to_intersection;
+            cout << "then take local road " << destPlace->dist_to_intersection 
+                 << " miles to " << destPlace->name << ", " << destPlace->state << endl;
+            cout << "Total distance: " << totalDist << " miles.\n";
+
+            vector<vector<short>> elevationData;
+            int numRows, numCols;
+            short minElev, maxElev, specialVal;
+            int leftLongSec, topLatSec, secondsPerPixel, bytesPerPixel;
+
+            string elevFilePath = "dat_Files/all/" + altFile;
+            if (loadElevationData(elevFilePath, elevationData, numRows, numCols, 
+                                 minElev, maxElev, specialVal, 
+                                 leftLongSec, topLatSec, secondsPerPixel, bytesPerPixel)) {
+                cout << "Creating map visualization...\n";
+                window* screen = make_window(numCols, numRows);
+
+                drawElevationMap(screen, elevationData, numRows, numCols, 
+                               minElev, maxElev, specialVal);
+
+                markPoints(screen, startPlace, destPlace, leftLongSec, topLatSec, 
+                          secondsPerPixel, numCols, numRows);
+
+                drawPath(screen, path, graph, leftLongSec, topLatSec, 
+                        secondsPerPixel, numCols, numRows);
+
+                screen->catch_up();
+
+                printDirections(startPlace, destPlace, path, graph);
+
+                cout << "\nPress Enter to continue...";
+                cin.get();
+            } else {
+                cout << "Could not load elevation data.\n";
+            }
+        }
+    }
+
+    for (size_t i = 0; i < allRoads.size(); i++) {
+        delete allRoads[i];
+    }
+    for (size_t i = 0; i < graph.size(); i++) {
+        delete graph[i];
+    }
+}
+
