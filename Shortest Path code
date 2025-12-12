@@ -2,7 +2,6 @@
 #include <string>
 #include <fstream>
 #include <vector>
-#include <queue>
 #include <cmath>
 #include <cstdlib>
 #include "library.h"
@@ -77,6 +76,91 @@ struct Node {
 
   Node(named_place* n){  data = n;
   next = nullptr;
+  }
+};
+
+struct DijkstraNode {
+    int id;
+    double dist;
+
+    bool operator>(const DijkstraNode& other) const {
+        return dist > other.dist;
+    }
+
+	DijkstraNode(int i, double d){
+		id = i;
+		dist = d;
+	}
+};
+
+void swap(int a, int b, vector<DijkstraNode> &heap){
+  DijkstraNode temp = heap[a];
+  heap[a] = heap[b];
+  heap[b] = temp;
+}
+
+class heap{
+private:
+  vector<DijkstraNode> priorityQueue;
+
+  void heapifyUp(int index){
+    while(index > 0){
+      int parent = (index-1)/2;
+      if(priorityQueue[index].dist >= priorityQueue[parent].dist) break;
+      swap(parent, index, priorityQueue);
+      index = parent;
+    }
+  }
+
+  void heapifyDown(int index){
+    int size = priorityQueue.size();
+    while(true){
+      int left = index * 2 +1;
+      int right = index * 2 + 2;
+      int parent = index;
+
+      if (left < size && priorityQueue[left].dist < priorityQueue[parent].dist)
+         parent = left;
+      if (right < size && priorityQueue[right].dist < priorityQueue[parent].dist)
+         parent = right;
+
+      if (parent == index) break;
+
+      swap(parent, index, priorityQueue);
+      index = parent;
+      }
+  }
+
+public:
+  heap() {}
+
+  void push(const DijkstraNode &d){
+    priorityQueue.push_back(d);
+    heapifyUp(priorityQueue.size()-1);
+  }
+
+  void pop(){
+    swap(0, priorityQueue.size()-1, priorityQueue);
+    priorityQueue.pop_back();
+    if (!priorityQueue.empty())
+        heapifyDown(0);
+  }
+
+  DijkstraNode top(){
+    return priorityQueue[0];
+  }
+
+  bool empty(){
+    if(priorityQueue.size()<1)
+      return true;
+    return false;
+  }
+
+  void print(){
+    if(priorityQueue.empty())
+      cout<<"Heap is empty"<<endl;
+    for(int i = 0; i<priorityQueue.size(); i++)
+      cout<<priorityQueue[i].dist<<endl;
   }
 };
 
@@ -305,45 +389,31 @@ string find_alt_file(named_place* p1, named_place* p2, int& smallest, ifstream &
     return "";
 }
 
-Road read_line_connections(const string& line) {
-    Road r;
+Road* read_line_connections(const string& line) {
+    Road* r = new Road();
     size_t pos = 0;
     size_t nextPos;
 
     nextPos = line.find(' ', pos);
-    r.name = line.substr(pos, nextPos - pos);
+    r->name = line.substr(pos, nextPos - pos);
     pos = nextPos + 1;
 
     nextPos = line.find(' ', pos);
-    r.type = line.substr(pos, nextPos - pos);
+    r->type = line.substr(pos, nextPos - pos);
     pos = nextPos + 1;
 
     nextPos = line.find(' ', pos);
-    r.from = stoi(line.substr(pos, nextPos - pos));
+    r->from = stoi(line.substr(pos, nextPos - pos));
     pos = nextPos + 1;
 
     nextPos = line.find(' ', pos);
-    r.to = stoi(line.substr(pos, nextPos - pos));
+    r->to = stoi(line.substr(pos, nextPos - pos));
     pos = nextPos + 1;
 
-    r.length = stod(line.substr(pos));
+    r->length = stod(line.substr(pos));
 
     return r;
 }
-
-struct DijkstraNode {
-    int id;
-    double dist;
-
-    bool operator>(const DijkstraNode& other) const {
-        return dist > other.dist;
-    }
-
-	DijkstraNode(int i, double d){
-		id = i;
-		dist = d;
-	}
-};
 
 string getCompassDirection(double lat1, double lon1, double lat2, double lon2) {
     double dLon = (lon2 - lon1);
@@ -380,7 +450,7 @@ vector<Road*> findShortestPath(int startNode, int endNode, const vector<graphNod
     vector<double> dist(n, -1.0);
     vector<int> parent(n, -1);
     vector<Road*> parentRoad(n, nullptr);
-    priority_queue<DijkstraNode, vector<DijkstraNode>, greater<DijkstraNode>> pq;
+    heap pq;
 
     int startIdx = startNode - 1;
     int endIdx = endNode - 1;
@@ -394,37 +464,33 @@ vector<Road*> findShortestPath(int startNode, int endNode, const vector<graphNod
         int u = pq.top().id;
         double d = pq.top().dist;
         pq.pop();
-
         if (dist[u] != -1.0 && d > dist[u]) continue;
 
-		if(graph[u]->roads.size() == 0){
-			cout<<graph[u]->data->name<<endl;
-		}
-
+        if(graph[u]->roads.size() == 0){
+          cout<<graph[u]->data->name<<endl;
+        }
         for (size_t i = 0; i < graph[u]->roads.size(); i++) {
             Road* road = graph[u]->roads[i];
+          int v;
+          if (road->from - 1 == u) {
+            v = road->to - 1;
+          } else if (road->to - 1 == u) {
+            v = road->from - 1;
+          } else {
+            continue;
+          }
 
-            int v;
-			if (road->from - 1 == u) {
-				v = road->to - 1;  
-			} else if (road->to - 1 == u) {
-				v = road->from - 1; 
-			} else {
-				continue;
-			}
-    
-			if (v < 0 || v >= n) continue;
-    
-			double weight = road->length;
-			double newDist = dist[u] + weight;
-            if (dist[v] == -1.0 || dist[u] + weight < dist[v]) {
-                dist[v] = dist[u] + weight;
-                parent[v] = u;
-                parentRoad[v] = road;
+          if (v < 0 || v >= n) continue;
+          double weight = road->length;
+          double newDist = dist[u] + weight;
+          if (dist[v] == -1.0 || dist[u] + weight < dist[v]) {
+              dist[v] = dist[u] + weight;
+              parent[v] = u;
+              parentRoad[v] = road;
 
-                DijkstraNode node(v, dist[v]);
-                pq.push(node);
-            }
+              DijkstraNode node(v, dist[v]);
+              pq.push(node);
+          }
         }
     }
 
@@ -697,26 +763,6 @@ bool loadElevationData(const string& filename,
 void main() {
     const int MAX_INTERSECTIONS = 50000;
 
-    ifstream connectionsFile("connections.txt");
-    if (!connectionsFile.is_open()) {
-        cerr << "Error opening connections.txt! Please ensure it is in the current directory." << endl;
-        return;
-    }
-
-    vector<Road*> allRoads;
-    string line;
-    while (getline(connectionsFile, line)) {
-        if (line.empty()) continue;
-        Road r = read_line_connections(line);
-
-        if (r.from >= 0 && r.from <= MAX_INTERSECTIONS) {
-            allRoads.push_back(new Road(r));
-        } else {
-            cerr << "Warning: 'from' value out of range: " << r.from << endl;
-        }
-    }
-    connectionsFile.close();
-
     ifstream intersectionsFile("intersections.txt");
     if (!intersectionsFile.is_open()) {
         cerr << "Error opening intersections.txt! Please ensure it is in the current directory." << endl;
@@ -749,6 +795,33 @@ void main() {
 			cerr << "Invalid road destination index: " << road->to << endl;
 		}
 	}
+
+ifstream connectionsFile("/home/www/class/een318/connections.txt");
+    if (!connectionsFile.is_open()) {
+        cerr << "Error opening connections.txt! Please ensure it is in the current directory." << endl;
+        return 0;
+    }
+
+    string line;
+    while (getline(connectionsFile, line)) {
+        if (line.empty()) continue;
+        Road* r = read_line_connections(line);
+
+        int fromIdx = r->from - 1;
+        int toIdx = r->to - 1;
+
+        if (fromIdx >= 0 && fromIdx < (int)graph.size()) {
+          graph[fromIdx]->roads.push_back(r);
+        } else {
+          cerr << "Invalid road source index: " << r->from << endl;
+        }
+        if (toIdx >= 0 && toIdx < (int)graph.size()) {
+          graph[toIdx]->roads.push_back(r);
+        } else {
+          cerr << "Invalid road destination index: " << r->to << endl;
+        }
+    }
+    connectionsFile.close();
 
     ifstream file3("named_places.txt");
     if(!file3.is_open()) {
@@ -937,4 +1010,70 @@ void main() {
         delete graph[i];
     }
 }
+
+
+
+void swap(int a, int b, vector<DijkstraNode> &heap){
+  DijkstraNode temp = heap[a];
+  heap[a] = heap[b];
+  heap[b] = temp;
+}
+
+class heap{
+private:
+  vector<DijkstraNode> pq;
+
+  void heapifyUp(int index){
+    while(index > 0){
+      int parent = (index-1)/2;
+      if(pq[index].dist >= pq[parent].dist) break;
+      swap(parent, index, pq);
+      index = parent;
+    }
+  }
+
+  void heapifyDown(int index){
+    int size = pq.size();
+    while(true){
+      int left = index * 2 +1;
+      int right = index * 2 + 2;
+      int parent = index;
+
+      if (left < size && pq[left] > pq[parent])
+         parent = left;
+      if (right < size && pq[right] > pq[parent])
+         parent = right;
+
+      if (parent == index) break;
+
+      swap(parent, index, pq);
+      index = parent;
+      }
+  }
+
+public:
+  heap() {}
+
+  void push(DijkstraNode d){
+    pq.push_back(d);
+    heapifyUp(pq.size()-1);
+  }
+
+  void pop(){
+    swap(0, pq.size()-1, pq);
+    pq.pop_back();
+    if (!pq.empty())
+        heapifyDown(0);
+  }
+
+  DijkstraNode top(){
+    return pq[0];
+  }
+
+  bool empty(){
+    if(pq.size()>0)
+      return true;
+    return false;
+  }
+};
 
